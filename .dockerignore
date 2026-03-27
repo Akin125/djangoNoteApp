@@ -1,56 +1,14 @@
-# Virtual environments
 djangoNoteAppenv/
 venv/
 env/
-ENV/
-.venv
-
-# Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-pip-log.txt
-pip-delete-this-directory.txt
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
-
-# IDE
+*.pyc
+.env
+.git
+.gitignore
 .idea/
 .vscode/
-*.swp
-*.swo
-*~
-.DS_Store
-*.sublime-project
-*.sublime-workspace
-
-# Project specific
 *.log
-local_settings.py
 db.sqlite3
-/staticfiles/
-/media/
-
-# Git
-.git/
-.gitignore
-
-# Docker
-Dockerfile
-docker-compose.yml
-.dockerignore
-
-# Environment
-.env
-.env.local
-.env.*.local
+.DS_Store
 

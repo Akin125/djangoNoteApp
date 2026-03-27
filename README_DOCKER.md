@@ -1,4 +1,4 @@
-# Django Note App - Docker Setup
+# Django Note App - Docker Setup (SQLite)
 
 ## Quick Start
 
@@ -8,7 +8,7 @@
 
 ### Run the App
 
-1. **Build and start containers:**
+1. **Build and start container:**
 ```bash
 docker-compose up -d --build
 ```
@@ -46,31 +46,15 @@ docker-compose exec web python manage.py shell
 docker-compose exec web python manage.py test
 ```
 
-### Database access
-```bash
-docker-compose exec db psql -U admin -d djangonoteapp
-```
-
 ## File Descriptions
 
 - `Dockerfile` - Container image configuration
-- `docker-compose.yml` - Multi-container orchestration
+- `docker-compose.yml` - Container orchestration (single web service with SQLite)
 - `.dockerignore` - Files to exclude from Docker build
-- `.env.example` - Environment variables template
 
-## Troubleshooting
+## Notes
 
-**Port already in use:**
-Edit `docker-compose.yml` and change port mappings
-
-**Database connection error:**
-```bash
-docker-compose down -v
-docker-compose up -d --build
-```
-
-**View all containers:**
-```bash
-docker-compose ps
-```
+- SQLite database file (`db.sqlite3`) is stored in the container and persists across restarts
+- Using Django development server for simplicity
+- Database is included in the volume mount so changes persist
 
