@@ -1,0 +1,75 @@
+# Advanced Docker Compose with Nginx (Production-like setup)
+# Use this file for production-like environments with Nginx reverse proxy
+# Usage: docker-compose -f docker-compose.prod.yml up
+
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: django_noteapp_db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-djangoNoteApp}
+      POSTGRES_USER: ${DB_USER:-noteuser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-notesecurepass123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - noteapp_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-noteuser}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    build: .
+    container_name: django_noteapp_web
+    command: sh -c "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 --workers 4 djangoNoteApp.wsgi:application"
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    environment:
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: ${DB_NAME:-djangoNoteApp}
+      DB_USER: ${DB_USER:-noteuser}
+      DB_PASSWORD: ${DB_PASSWORD:-notesecurepass123}
+      DB_HOST: db
+      DB_PORT: 5432
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-this-in-production}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - noteapp_network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: django_noteapp_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_volume:/app/staticfiles:ro
+      - media_volume:/app/media:ro
+    depends_on:
+      - web
+    networks:
+      - noteapp_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:
+
+networks:
+  noteapp_network:
+    driver: bridge
+
