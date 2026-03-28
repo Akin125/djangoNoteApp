@@ -14,6 +14,12 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ('id', 'username', 'email', 'first_name', 'last_name')
         read_only_fields = ('id',)
+        extra_kwargs = {
+            'username': {'help_text': 'The username for the account'},
+            'email': {'help_text': 'The email address associated with the account'},
+            'first_name': {'help_text': 'User\'s first name'},
+            'last_name': {'help_text': 'User\'s last name'},
+        }
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
@@ -23,12 +29,38 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=8)
-    confirm_password = serializers.CharField(write_only=True, min_length=8)
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        help_text='Password must be at least 8 characters long'
+    )
+    confirm_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        help_text='Confirm password - must match password field'
+    )
 
     class Meta:
         model = User
         fields = ('username', 'email', 'password', 'confirm_password', 'first_name', 'last_name')
+        extra_kwargs = {
+            'username': {
+                'help_text': 'Username for the account (must be unique)',
+                'required': True,
+            },
+            'email': {
+                'help_text': 'Email address (must be unique and valid)',
+                'required': True,
+            },
+            'first_name': {
+                'help_text': 'First name (optional)',
+                'required': False,
+            },
+            'last_name': {
+                'help_text': 'Last name (optional)',
+                'required': False,
+            },
+        }
 
     def validate_username(self, value):
         if User.objects.filter(username=value).exists():
@@ -48,13 +80,20 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('confirm_password')
         user = User.objects.create_user(**validated_data)
-        UserProfile.objects.create(user=user, **validated_data)
+        UserProfile.objects.create(user=user)
         return user
 
 
 class LoginSerializer(serializers.Serializer):
-    username = serializers.CharField(max_length=255)
-    password = serializers.CharField(max_length=128, write_only=True)
+    username = serializers.CharField(
+        max_length=255,
+        help_text='Username for login'
+    )
+    password = serializers.CharField(
+        max_length=128,
+        write_only=True,
+        help_text='Password for login'
+    )
 
     class Meta:
         fields = ('username', 'password')
@@ -71,9 +110,23 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class ChangePasswordSerializer(serializers.Serializer):
-    old_password = serializers.CharField(write_only=True, required=True)
-    new_password = serializers.CharField(write_only=True, min_length=8, required=True)
-    new_confirm_password = serializers.CharField(write_only=True, min_length=8, required=True)
+    old_password = serializers.CharField(
+        write_only=True,
+        required=True,
+        help_text='Current password'
+    )
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        required=True,
+        help_text='New password (minimum 8 characters)'
+    )
+    new_confirm_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        required=True,
+        help_text='Confirm new password - must match new_password'
+    )
 
     def validate(self, data):
         if data['new_password'] != data['new_confirm_password']:
@@ -84,7 +137,10 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 class ForgotPasswordSerializer(serializers.Serializer):
-    email = serializers.EmailField(max_length=255)
+    email = serializers.EmailField(
+        max_length=255,
+        help_text='Email address associated with your account'
+    )
 
     def validate_email(self, value):
         if not User.objects.filter(email=value).exists():
@@ -93,10 +149,24 @@ class ForgotPasswordSerializer(serializers.Serializer):
 
 
 class ResetPasswordSerializer(serializers.Serializer):
-    password = serializers.CharField(write_only=True, min_length=8)
-    confirm_password = serializers.CharField(write_only=True, min_length=8)
-    uidb64 = serializers.CharField(write_only=True)
-    token = serializers.CharField(write_only=True)
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        help_text='New password (minimum 8 characters)'
+    )
+    confirm_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        help_text='Confirm new password - must match password'
+    )
+    uidb64 = serializers.CharField(
+        write_only=True,
+        help_text='User ID encoded in base64 (from reset email link)'
+    )
+    token = serializers.CharField(
+        write_only=True,
+        help_text='Password reset token (from reset email link)'
+    )
 
     def validate(self, data):
         if data['password'] != data['confirm_password']:

@@ -1,16 +1,18 @@
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from django.contrib.auth.models import User
-from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.utils.encoding import smart_str, force_bytes, smart_bytes
-from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
-from django.core.mail import send_mail
-from django.conf import settings
 from accounts.models import UserProfile
+from django.conf import settings
+from django.contrib.auth.models import User
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.core.mail import send_mail
+from django.utils.encoding import smart_str, smart_bytes
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from drf_spectacular.utils import extend_schema
+from rest_framework import status
+from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.viewsets import ViewSet
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .serializers import (
     UserSerializer,
@@ -28,41 +30,41 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     permission_classes = [AllowAny]
 
 
-class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
+class UserViewSet(ViewSet):
     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self):
-        # Users can only see their own profile
-        return User.objects.filter(id=self.request.user.id)
+    # ========== AUTH ENDPOINTS ==========
 
+    @extend_schema(
+        summary="Register a new user",
+        description="Create a new user account and send email verification link.",
+        request=RegisterSerializer,
+    )
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def register(self, request):
-        """Register a new user"""
+        """Register a new user and return tokens"""
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
             profile = user.profile
+
             # Generate verification token
             token = PasswordResetTokenGenerator().make_token(user)
             profile.email_verification_token = token
             profile.save()
 
             uidb64 = urlsafe_base64_encode(smart_bytes(user.id))
-
-            # Create verification link
             verification_link = f"{settings.FRONTEND_URL}/verify-email/?uidb64={uidb64}&token={token}"
 
             # Send verification email
             subject = 'Verify Your Email'
             message = f"""
-            Hi {user.username},
-            
-            Please verify your email by clicking the link below:
-            {verification_link}
-            
-            This link will expire in 24 hours.
+Hi {user.username},
+
+Click the link below to verify your email and activate your account:
+{verification_link}
+
+This link will expire in 24 hours.
             """
 
             try:
@@ -73,24 +75,35 @@ class UserViewSet(viewsets.ModelViewSet):
                     [user.email],
                     fail_silently=False,
                 )
+
+                # Generate tokens
+                refresh = RefreshToken.for_user(user)
+
                 return Response(
                     {
                         'message': 'User registered successfully. Check your email to verify your account.',
                         'user': UserSerializer(user).data,
+                        'access': str(refresh.access_token),
+                        'refresh': str(refresh),
                     },
                     status=status.HTTP_201_CREATED
                 )
             except Exception as e:
-                user.delete() # delete user if email fails
+                user.delete()
                 return Response(
                     {'error': 'Failed to send verification email'},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @extend_schema(
+        summary="Login user",
+        description="Authenticate user and get JWT tokens.",
+        request=LoginSerializer,
+    )
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def login(self, request):
-        """Login user - requires email verification"""
+        """Login user and return tokens"""
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
             username = serializer.validated_data['username']
@@ -98,13 +111,6 @@ class UserViewSet(viewsets.ModelViewSet):
 
             try:
                 user = User.objects.get(username=username)
-
-                # Check if email is verified
-                if not user.profile.email_verified:
-                    return Response(
-                        {'error': 'Please verify your email before logging in'},
-                        status=status.HTTP_403_FORBIDDEN
-                    )
 
                 if user.check_password(password):
                     refresh = RefreshToken.for_user(user)
@@ -129,64 +135,22 @@ class UserViewSet(viewsets.ModelViewSet):
                 )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
-    def verify_email(self, request):
-        """Verify email using token from email"""
-        uidb64 = request.data.get('uidb64')
-        token = request.data.get('token')
+    @extend_schema(
+        summary="Get user profile",
+        description="Retrieve the profile of the authenticated user.",
+        responses=UserSerializer,
+    )
+    @action(detail=False, methods=['get'])
+    def profile(self, request):
+        """Get current user profile"""
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
-        if not uidb64 or not token:
-            return Response(
-                {'error': 'Missing uidb64 or token'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            user_id = smart_str(urlsafe_base64_decode(uidb64))
-            user = User.objects.get(id=user_id)
-            profile = user.profile
-
-            # Verify token
-            if not PasswordResetTokenGenerator().check_token(user, token):
-                return Response(
-                    {'error': 'Invalid or expired token'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            # Mark email as verified
-            profile.email_verified = True
-            profile.email_verification_token = None
-            profile.save()
-
-            return Response(
-                {'message': 'Email verified successfully. You can now login.'},
-                status=status.HTTP_200_OK
-            )
-        except Exception as e:
-            return Response(
-                {'error': 'Invalid token or user'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-    @action(detail=False, methods=['post'])
-    def change_password(self, request):
-        """Change password for authenticated user"""
-        serializer = ChangePasswordSerializer(data=request.data)
-        if serializer.is_valid():
-            user = request.user
-            if not user.check_password(serializer.validated_data['old_password']):
-                return Response(
-                    {'old_password': 'Wrong password'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            user.set_password(serializer.validated_data['new_password'])
-            user.save()
-            return Response(
-                {'message': 'Password changed successfully'},
-                status=status.HTTP_200_OK
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+    @extend_schema(
+        summary="Request password reset",
+        description="Send password reset email to the specified email address.",
+        request=ForgotPasswordSerializer,
+    )
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def forgot_password(self, request):
         """Request password reset email"""
@@ -198,21 +162,19 @@ class UserViewSet(viewsets.ModelViewSet):
             # Generate reset token
             uidb64 = urlsafe_base64_encode(smart_bytes(user.id))
             token = PasswordResetTokenGenerator().make_token(user)
-
-            # Create reset link
             reset_link = f"{settings.FRONTEND_URL}/reset-password/?uidb64={uidb64}&token={token}"
 
             # Send email
             subject = 'Password Reset Request'
             message = f"""
-            Hi {user.username},
-            
-            Click the link below to reset your password:
-            {reset_link}
-            
-            This link will expire in 24 hours.
-            
-            If you did not request this, please ignore this email.
+Hi {user.username},
+
+Click the link below to reset your password:
+{reset_link}
+
+This link will expire in 24 hours.
+
+If you did not request this, please ignore this email.
             """
 
             try:
@@ -234,6 +196,11 @@ class UserViewSet(viewsets.ModelViewSet):
                 )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    @extend_schema(
+        summary="Reset password",
+        description="Reset password using token from password reset email.",
+        request=ResetPasswordSerializer,
+    )
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def reset_password(self, request):
         """Reset password using token from email"""
@@ -244,18 +211,15 @@ class UserViewSet(viewsets.ModelViewSet):
             new_password = serializer.validated_data['password']
 
             try:
-                # Decode user ID
                 user_id = smart_str(urlsafe_base64_decode(uidb64))
                 user = User.objects.get(id=user_id)
 
-                # Verify token
                 if not PasswordResetTokenGenerator().check_token(user, token):
                     return Response(
                         {'error': 'Invalid or expired token'},
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
-                # Reset password
                 user.set_password(new_password)
                 user.save()
 
@@ -270,8 +234,41 @@ class UserViewSet(viewsets.ModelViewSet):
                 )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['get'])
-    def profile(self, request):
-        """Get current user profile"""
-        serializer = UserSerializer(request.user)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    @extend_schema(
+        summary="Change password",
+        description="Change password for the authenticated user.",
+        request=ChangePasswordSerializer,
+    )
+    @action(detail=False, methods=['post'])
+    def change_password(self, request):
+        """Change password for authenticated user"""
+        serializer = ChangePasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            user = request.user
+            if not user.check_password(serializer.validated_data['old_password']):
+                return Response(
+                    {'old_password': 'Wrong password'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            user.set_password(serializer.validated_data['new_password'])
+            user.save()
+            return Response(
+                {'message': 'Password changed successfully'},
+                status=status.HTTP_200_OK
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        summary="Delete user account",
+        description="Permanently delete the authenticated user account.",
+    )
+    @action(detail=False, methods=['delete'])
+    def delete_account(self, request):
+        """Delete authenticated user account permanently"""
+        user = request.user
+        username = user.username
+        user.delete()
+        return Response(
+            {'message': f'User account {username} has been deleted successfully'},
+            status=status.HTTP_200_OK
+        )

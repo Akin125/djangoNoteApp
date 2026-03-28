@@ -169,8 +169,17 @@ SPECTACULAR_SETTINGS = {
     'DESCRIPTION': 'A RESTful API for managing notes with JWT authentication',
     'VERSION': '1.0.0',
     'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
-    'SERVERS': [
-        {'url': 'http://localhost:8000', 'description': 'Development'},
-        {'url': 'http://0.0.0.0:8000', 'description': 'Docker'},
-    ],
+    # Security scheme for JWT Bearer token
+    'COMPONENTS': {
+        'securitySchemes': {
+            'Bearer': {
+                'type': 'http',
+                'scheme': 'bearer',
+                'bearerFormat': 'JWT',
+                'description': 'JWT Authorization header using the Bearer scheme. Example: "Authorization: Bearer {token}"'
+            }
+        }
+    },
+    'SECURITY': [{'Bearer': []}],
 }
+
